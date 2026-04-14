@@ -1,0 +1,392 @@
+import React, { useMemo, useState } from "react";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ScatterChart, Scatter } from "recharts";
+import { Calculator, Plus, RefreshCcw } from "lucide-react";
+
+const alphaBetaOptions = [1, 1.5, 2, 3, 10];
+
+function toNumber(value, fallback = 0) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function calcEQD2(dosePerFraction, fractions, alphaBeta) {
+  const d = toNumber(dosePerFraction);
+  const n = toNumber(fractions);
+  const ab = toNumber(alphaBeta);
+  if (d <= 0 || n <= 0 || ab <= 0) return 0;
+  const totalDose = d * n;
+  return totalDose * ((d + ab) / (2 + ab));
+}
+
+function makePlan(name, dosePerFraction, fractions, alphaBeta) {
+  return {
+    id: crypto.randomUUID(),
+    name,
+    dosePerFraction,
+    fractions,
+    alphaBeta,
+  };
+}
+
+function recoveryFactor(intervalMonths, monthlyDecayRate) {
+  const months = toNumber(intervalMonths);
+  const decay = toNumber(monthlyDecayRate);
+  return Math.max(0, 1 - months * decay);
+}
+
+export default function EQD2ClinicalVisualizer() {
+  const [singleDosePerFraction, setSingleDosePerFraction] = useState(3);
+  const [singleFractions, setSingleFractions] = useState(5);
+  const [singleAlphaBeta, setSingleAlphaBeta] = useState(10);
+
+  const [plans, setPlans] = useState([
+    makePlan("プランA", 3, 5, 10),
+    makePlan("プランB", 2, 10, 10),
+    makePlan("プランC", 7, 5, 10),
+  ]);
+
+  const [reirradiation, setReirradiation] = useState({
+    priorDosePerFraction: 2,
+    priorFractions: 30,
+    priorAlphaBeta: 3,
+    newDosePerFraction: 3,
+    newFractions: 10,
+    newAlphaBeta: 3,
+    intervalMonths: 12,
+    monthlyDecayRate: 0.02,
+  });
+
+  const singleTotalDose = useMemo(() => {
+    return toNumber(singleDosePerFraction) * toNumber(singleFractions);
+  }, [singleDosePerFraction, singleFractions]);
+
+  const singleEQD2 = useMemo(() => {
+    return calcEQD2(singleDosePerFraction, singleFractions, singleAlphaBeta);
+  }, [singleDosePerFraction, singleFractions, singleAlphaBeta]);
+
+  const computedPlans = useMemo(() => {
+    return plans.map((plan) => {
+      const totalDose = toNumber(plan.dosePerFraction) * toNumber(plan.fractions);
+      const eqd2 = calcEQD2(plan.dosePerFraction, plan.fractions, plan.alphaBeta);
+      return {
+        ...plan,
+        totalDose,
+        eqd2,
+      };
+    });
+  }, [plans]);
+
+  const barData = useMemo(() => {
+    return computedPlans.map((plan) => ({
+      name: plan.name,
+      EQD2: Number(plan.eqd2.toFixed(2)),
+    }));
+  }, [computedPlans]);
+
+  const scatterData = useMemo(() => {
+    return computedPlans.map((plan) => ({
+      name: plan.name,
+      dose: Number(plan.totalDose.toFixed(2)),
+      eqd2: Number(plan.eqd2.toFixed(2)),
+    }));
+  }, [computedPlans]);
+
+  const reirradiationResult = useMemo(() => {
+    const priorEQD2 = calcEQD2(
+      reirradiation.priorDosePerFraction,
+      reirradiation.priorFractions,
+      reirradiation.priorAlphaBeta
+    );
+    const newEQD2 = calcEQD2(
+      reirradiation.newDosePerFraction,
+      reirradiation.newFractions,
+      reirradiation.newAlphaBeta
+    );
+    const factor = recoveryFactor(reirradiation.intervalMonths, reirradiation.monthlyDecayRate);
+    const simpleSum = priorEQD2 + newEQD2;
+    const correctedSum = priorEQD2 * factor + newEQD2;
+
+    return {
+      priorEQD2,
+      newEQD2,
+      factor,
+      simpleSum,
+      correctedSum,
+    };
+  }, [reirradiation]);
+
+  const updatePlan = (id, key, value) => {
+    setPlans((prev) => prev.map((plan) => (plan.id === id ? { ...plan, [key]: value } : plan)));
+  };
+
+  const addPlan = () => {
+    setPlans((prev) => [...prev, makePlan(`プラン${String.fromCharCode(65 + prev.length)}`, 2, 5, 10)]);
+  };
+
+  const resetAll = () => {
+    setSingleDosePerFraction(3);
+    setSingleFractions(5);
+    setSingleAlphaBeta(10);
+    setPlans([
+      makePlan("プランA", 3, 5, 10),
+      makePlan("プランB", 2, 10, 10),
+      makePlan("プランC", 7, 5, 10),
+    ]);
+    setReirradiation({
+      priorDosePerFraction: 2,
+      priorFractions: 30,
+      priorAlphaBeta: 3,
+      newDosePerFraction: 3,
+      newFractions: 10,
+      newAlphaBeta: 3,
+      intervalMonths: 12,
+      monthlyDecayRate: 0.02,
+    });
+  };
+
+  return (
+    <div className="min-h-screen bg-slate-50 p-4 md:p-8">
+      <div className="mx-auto max-w-6xl space-y-6">
+        <Card className="rounded-2xl shadow-sm">
+          <CardHeader>
+            <div className="flex items-center gap-3">
+              <div className="rounded-2xl bg-white p-2 shadow-sm">
+                <Calculator className="h-5 w-5" />
+              </div>
+              <div>
+                <CardTitle className="text-2xl">EQD2 シンプル計算ツール</CardTitle>
+                <CardDescription>
+                  上から、単独計算、複数プラン比較とグラフ表示、再照射時の線量加算を並べた構成です。
+                </CardDescription>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="flex flex-wrap gap-3">
+            <Button variant="outline" onClick={resetAll} className="rounded-xl">
+              <RefreshCcw className="mr-2 h-4 w-4" />初期化
+            </Button>
+          </CardContent>
+        </Card>
+
+        <Card className="rounded-2xl shadow-sm">
+          <CardHeader>
+            <CardTitle>1. 単独のEQD2計算</CardTitle>
+            <CardDescription>1回線量、回数、α/βを入力すると、その場でEQD2を計算します。</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="grid gap-4 md:grid-cols-3 lg:grid-cols-4">
+              <div className="space-y-2">
+                <Label>1回線量 (Gy)</Label>
+                <Input type="number" step="0.1" value={singleDosePerFraction} onChange={(e) => setSingleDosePerFraction(toNumber(e.target.value, 0))} />
+              </div>
+              <div className="space-y-2">
+                <Label>回数</Label>
+                <Input type="number" step="1" value={singleFractions} onChange={(e) => setSingleFractions(toNumber(e.target.value, 0))} />
+              </div>
+              <div className="space-y-2">
+                <Label>α/β</Label>
+                <Select value={String(singleAlphaBeta)} onValueChange={(v) => setSingleAlphaBeta(toNumber(v, 10))}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {alphaBetaOptions.map((ab) => (
+                      <SelectItem key={ab} value={String(ab)}>{ab}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="rounded-2xl bg-white p-4 shadow-sm">
+                <div className="text-sm text-slate-500">総線量</div>
+                <div className="text-2xl font-semibold">{singleTotalDose.toFixed(2)} Gy</div>
+                <div className="mt-3 text-sm text-slate-500">EQD2</div>
+                <div className="text-3xl font-semibold">{singleEQD2.toFixed(2)} Gy</div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="rounded-2xl shadow-sm">
+          <CardHeader>
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <CardTitle>2. 異なる治療プランの比較とグラフ表示</CardTitle>
+                <CardDescription>複数プランを入力し、表・棒グラフ・総線量を横軸にした散布図で比較します。</CardDescription>
+              </div>
+              <Button onClick={addPlan} className="rounded-xl">
+                <Plus className="mr-2 h-4 w-4" />プラン追加
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>プラン</TableHead>
+                  <TableHead>1回線量</TableHead>
+                  <TableHead>回数</TableHead>
+                  <TableHead>α/β</TableHead>
+                  <TableHead>総線量</TableHead>
+                  <TableHead>EQD2</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {computedPlans.map((plan) => (
+                  <TableRow key={plan.id}>
+                    <TableCell>
+                      <Input value={plan.name} onChange={(e) => updatePlan(plan.id, "name", e.target.value)} />
+                    </TableCell>
+                    <TableCell>
+                      <Input type="number" step="0.1" value={plan.dosePerFraction} onChange={(e) => updatePlan(plan.id, "dosePerFraction", toNumber(e.target.value, 0))} />
+                    </TableCell>
+                    <TableCell>
+                      <Input type="number" step="1" value={plan.fractions} onChange={(e) => updatePlan(plan.id, "fractions", toNumber(e.target.value, 0))} />
+                    </TableCell>
+                    <TableCell>
+                      <Select value={String(plan.alphaBeta)} onValueChange={(v) => updatePlan(plan.id, "alphaBeta", toNumber(v, 10))}>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {alphaBetaOptions.map((ab) => (
+                            <SelectItem key={ab} value={String(ab)}>{ab}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </TableCell>
+                    <TableCell>{plan.totalDose.toFixed(2)}</TableCell>
+                    <TableCell className="font-medium">{plan.eqd2.toFixed(2)}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+
+            <div className="grid gap-4 lg:grid-cols-2">
+              <Card className="rounded-2xl bg-white shadow-sm">
+                <CardHeader>
+                  <CardTitle className="text-lg">EQD2比較</CardTitle>
+                </CardHeader>
+                <CardContent className="h-[320px]">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={barData}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="name" />
+                      <YAxis />
+                      <Tooltip />
+                      <Bar dataKey="EQD2" />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </CardContent>
+              </Card>
+
+              <Card className="rounded-2xl bg-white shadow-sm">
+                <CardHeader>
+                  <CardTitle className="text-lg">総線量 vs EQD2</CardTitle>
+                </CardHeader>
+                <CardContent className="h-[320px]">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <ScatterChart>
+                      <CartesianGrid />
+                      <XAxis type="number" dataKey="dose" name="総線量" label={{ value: "総線量 (Gy)", position: "insideBottom", offset: -5 }} />
+                      <YAxis type="number" dataKey="eqd2" name="EQD2" label={{ value: "EQD2 (Gy)", angle: -90, position: "insideLeft" }} />
+                      <Tooltip />
+                      <Scatter data={scatterData} />
+                    </ScatterChart>
+                  </ResponsiveContainer>
+                </CardContent>
+              </Card>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="rounded-2xl shadow-sm">
+          <CardHeader>
+            <CardTitle>3. 再照射時の線量加算</CardTitle>
+            <CardDescription>既往照射と今回照射のEQD2を計算し、単純加算と、時間経過による仮の減衰補正後加算を表示します。</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+              <div className="space-y-2">
+                <Label>既往 1回線量 (Gy)</Label>
+                <Input type="number" step="0.1" value={reirradiation.priorDosePerFraction} onChange={(e) => setReirradiation({ ...reirradiation, priorDosePerFraction: toNumber(e.target.value, 0) })} />
+              </div>
+              <div className="space-y-2">
+                <Label>既往 回数</Label>
+                <Input type="number" step="1" value={reirradiation.priorFractions} onChange={(e) => setReirradiation({ ...reirradiation, priorFractions: toNumber(e.target.value, 0) })} />
+              </div>
+              <div className="space-y-2">
+                <Label>既往 α/β</Label>
+                <Select value={String(reirradiation.priorAlphaBeta)} onValueChange={(v) => setReirradiation({ ...reirradiation, priorAlphaBeta: toNumber(v, 3) })}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {alphaBetaOptions.map((ab) => (
+                      <SelectItem key={ab} value={String(ab)}>{ab}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="rounded-2xl bg-white p-4 shadow-sm">
+                <div className="text-sm text-slate-500">既往 EQD2</div>
+                <div className="text-2xl font-semibold">{reirradiationResult.priorEQD2.toFixed(2)} Gy</div>
+              </div>
+
+              <div className="space-y-2">
+                <Label>今回 1回線量 (Gy)</Label>
+                <Input type="number" step="0.1" value={reirradiation.newDosePerFraction} onChange={(e) => setReirradiation({ ...reirradiation, newDosePerFraction: toNumber(e.target.value, 0) })} />
+              </div>
+              <div className="space-y-2">
+                <Label>今回 回数</Label>
+                <Input type="number" step="1" value={reirradiation.newFractions} onChange={(e) => setReirradiation({ ...reirradiation, newFractions: toNumber(e.target.value, 0) })} />
+              </div>
+              <div className="space-y-2">
+                <Label>今回 α/β</Label>
+                <Select value={String(reirradiation.newAlphaBeta)} onValueChange={(v) => setReirradiation({ ...reirradiation, newAlphaBeta: toNumber(v, 3) })}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {alphaBetaOptions.map((ab) => (
+                      <SelectItem key={ab} value={String(ab)}>{ab}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="rounded-2xl bg-white p-4 shadow-sm">
+                <div className="text-sm text-slate-500">今回 EQD2</div>
+                <div className="text-2xl font-semibold">{reirradiationResult.newEQD2.toFixed(2)} Gy</div>
+              </div>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+              <div className="space-y-2">
+                <Label>照射間隔（月）</Label>
+                <Input type="number" step="1" value={reirradiation.intervalMonths} onChange={(e) => setReirradiation({ ...reirradiation, intervalMonths: toNumber(e.target.value, 0) })} />
+              </div>
+              <div className="space-y-2">
+                <Label>月ごとの減衰率（仮）</Label>
+                <Input type="number" step="0.01" value={reirradiation.monthlyDecayRate} onChange={(e) => setReirradiation({ ...reirradiation, monthlyDecayRate: toNumber(e.target.value, 0) })} />
+              </div>
+              <div className="rounded-2xl bg-white p-4 shadow-sm">
+                <div className="text-sm text-slate-500">単純加算EQD2</div>
+                <div className="text-2xl font-semibold">{reirradiationResult.simpleSum.toFixed(2)} Gy</div>
+              </div>
+              <div className="rounded-2xl bg-white p-4 shadow-sm">
+                <div className="text-sm text-slate-500">減衰補正後EQD2</div>
+                <div className="text-2xl font-semibold">{reirradiationResult.correctedSum.toFixed(2)} Gy</div>
+                <div className="mt-1 text-xs text-slate-500">既往線量に {reirradiationResult.factor.toFixed(2)} を乗算</div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  );
+}
